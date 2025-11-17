@@ -67,7 +67,7 @@
                     <span class="key-visibility-toggle" data-target="masterSecurityKeyInput" onclick="toggleKeyVisibility(this)">👁️</span>
                 </div>
                 
-                <button id="authActionButton" onclick="performAuthentication()" class="action-main">Unlock Vault / Initial Setup</button>
+                <button id="authActionButton" onclick="await performAuthentication()" class="action-main">Unlock Vault / Initial Setup</button>
             </fieldset>
             <p style="margin-top: 15px; font-size: 0.8rem; color: var(--color-text-secondary);">
                 Note: <br> This application stores all data <strong>encrypted<strong> locally on this browser.
@@ -85,7 +85,7 @@
                 </div>
                 <h1 id="appTitleText">Secret Keeper</h1>
             </div>
-            <button id="modeToggleBtn" onclick="toggleAppTheme()" title="Toggle Theme"><span id="modeToggleIcon"></span></button>
+            <button id="modeToggleBtn" onclick="await toggleAppTheme()" title="Toggle Theme"><span id="modeToggleIcon"></span></button>
         </header>
 
         <div class="app-main-content-wrapper">
@@ -132,7 +132,7 @@
                                     <label for="credEntryNotes">Notes</label>
                                     <textarea id="credEntryNotes" rows="2" placeholder="Relevant details or context"></textarea>
 
-                                    <button class="action-main" onclick="storeNewEntry('credentials')">Encrypt & Save Credential</button>
+                                    <button class="action-main" onclick="await storeNewEntry('credentials')">Encrypt & Save Credential</button>
                                 </fieldset>
                             </div>
                             
@@ -154,7 +154,7 @@
                                     <label for="contactEntryNotes">Notes</label>
                                     <textarea id="contactEntryNotes" rows="2" placeholder="Address, context, etc."></textarea>
                                     
-                                    <button class="action-main" onclick="storeNewEntry('contact')">Encrypt & Save Contact</button>
+                                    <button class="action-main" onclick="await storeNewEntry('contact')">Encrypt & Save Contact</button>
                                 </fieldset>
                             </div>
 
@@ -167,7 +167,7 @@
                                     <label for="noteEntryContent">Note Content</label>
                                     <textarea id="noteEntryContent" rows="8" placeholder="The sensitive text, key, or data to be secured."></textarea>
                                     
-                                    <button class="action-main" onclick="storeNewEntry('securenote')">Encrypt & Save Note</button>
+                                    <button class="action-main" onclick="await storeNewEntry('securenote')">Encrypt & Save Note</button>
                                 </fieldset>
                             </div>
                             
@@ -183,7 +183,7 @@
                                     <label for="linkEntryNotes">Notes / Login Hints</label>
                                     <textarea id="linkEntryNotes" rows="2" placeholder="Any associated hints or details"></textarea>
 
-                                    <button class="action-main" onclick="storeNewEntry('link')">Encrypt & Save Link</button>
+                                    <button class="action-main" onclick="await storeNewEntry('link')">Encrypt & Save Link</button>
                                 </fieldset>
                             </div>
 
@@ -205,8 +205,8 @@
                                 <input type="text" id="selectedAccessID" placeholder="Selected ID will appear here" readonly>
                                 
                                 <div class="action-group-pair">
-                                    <button class="action-secondary" onclick="retrieveSelectedData()">Decrypt Selected Data</button>
-                                    <button class="action-delete" onclick="deleteSelectedData()">Delete Selected Entry</button>
+                                    <button class="action-secondary" onclick="await retrieveSelectedData()">Decrypt Selected Data</button>
+                                    <button class="action-delete" onclick="await deleteSelectedData()">Delete Selected Entry</button>
                                 </div>
                             </fieldset>
 
@@ -226,7 +226,7 @@
                                 <legend><h3>Vault Identifier</h3></legend>
                                 <label for="updateUserID">Current User Identifier</label>
                                 <input type="text" id="updateUserID" placeholder="Your identifier" readonly>
-                                <button class="action-main" onclick="updateAccountIdentifier()">Update Identifier</button>
+                                <button class="action-main" onclick="await updateAccountIdentifier()">Update Identifier</button>
                             </fieldset>
 
                             <fieldset>
@@ -239,13 +239,13 @@
                                     <input type="password" id="updateSecurityKeyInput" placeholder="Enter a new, strong key">
                                     <span class="key-visibility-toggle" data-target="updateSecurityKeyInput" onclick="toggleKeyVisibility(this)">👁️</span>
                                 </div>
-                                <button class="action-main" onclick="updateMasterSecurityKey()">Re-Encrypt Vault with New Key</button>
+                                <button class="action-main" onclick="await updateMasterSecurityKey()">Re-Encrypt Vault with New Key</button>
                             </fieldset>
 
                             <fieldset>
                                 <legend><h3>Backup & Restore</h3></legend>
                                 <div class="action-group-pair">
-                                    <button class="action-secondary" onclick="exportVaultData()">Export Encrypted Backup</button>
+                                    <button class="action-secondary" onclick="await exportVaultData()">Export Encrypted Backup</button>
                                     <label for="importDataFile" class="file-label action-secondary">Import Vault Backup</label>
                                     <input type="file" id="importDataFile" accept="application/json" onchange="importVaultData(event)" class="app-hidden">
                                 </div>
@@ -262,14 +262,14 @@
                                         Upload Avatar (Max 1MB)
                                     </label>
                                     <input type="file" id="avatarFileInput" accept="image/*" onchange="handleAvatarFile(event)" class="app-hidden">
-                                    <button onclick="saveUserAvatar()" class="action-main">Save Avatar</button>
-                                    <button class="action-delete" onclick="removeUserAvatar()">Remove Avatar</button>
+                                    <button onclick="await saveUserAvatar()" class="action-main">Save Avatar</button>
+                                    <button class="action-delete" onclick="await removeUserAvatar()">Remove Avatar</button>
                                 </div>
                             </fieldset>
 
                             <fieldset>
                                 <legend><h3>Danger Zone</h3></legend>
-                                <button class="action-critical" onclick="wipeAllVaultData()">Delete Account</button>
+                                <button class="action-critical" onclick="await wipeAllVaultData()">Delete Account</button>
                             </fieldset>
                         </div>
                     </div>
