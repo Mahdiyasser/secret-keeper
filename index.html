@@ -8,7 +8,8 @@
     <meta name="description"
         content="A secure, client-side encrypted vault application for storing credentials, notes, and sensitive data using a master security key.">
     <meta name="author" content="Mahdi Yasser">
-    <meta name="robots" content="index, follow"> <meta property="og:type" content="website">
+    <meta name="robots" content="index, follow"> 
+    <meta property="og:type" content="website">
     <meta property="og:url" content="https://keeper.mahdiyasser.site/">
     <meta property="og:title" content="Secret Keeper">
     <meta property="og:description"
@@ -28,15 +29,16 @@
       }
     }
     </script>
-    
     <link rel="icon" type="image/png" href="/favicon.ico"> 
     <link rel="apple-touch-icon" href="/favicon.ico"> 
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="icon" href="/favicon.ico" />
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="style.css"> 
+
 </head>
 <body class="app-layout">
 
@@ -56,223 +58,184 @@
             <fieldset>
                 <legend><h2>Vault Access</h2></legend>
                 <label for="vaultUsernameInput">Your User Identifier</label>
-                <input type="text" id="vaultUsernameInput" placeholder="e.g., myVault_1" value="" required>
-
-                <label for="masterSecurityKeyInput">Master Security Key</label>
-                <div class="input-with-toggle-key">
-                    <input type="password" id="masterSecurityKeyInput" placeholder="The key that encrypts everything" required>
-                    <span class="key-visibility-toggle" data-target="masterSecurityKeyInput" onclick="toggleKeyVisibility(this)">👁️</span>
-                </div>
+                <input type="text" id="vaultUsernameInput" placeholder="e.g., my_vault_id" required>
                 
-                <button id="authActionButton" onclick="performAuthentication()" class="action-main">Unlock Vault / Initial Setup</button>
+                <label for="masterSecurityKeyInput">Master Security Key</label>
+                <input type="password" id="masterSecurityKeyInput" placeholder="••••••••" required>
+                
+                <button id="authActionButton" class="action-main full-width-button">Unlock Vault</button>
             </fieldset>
-            <p style="margin-top: 15px; font-size: 0.8rem; color: var(--color-text-secondary);">
-                Note: <br> This application stores all data <strong>encrypted<strong> locally on this browser.
+            <div class="user-avatar-display small" style="margin-top: 20px;">
+                <img id="userAvatarDisplayImage" class="app-hidden" src="" alt="User Avatar">
+                <span id="userAvatarDisplayInitial">U</span>
+            </div>
+            <p class="login-info-text">
+                <span id="welcomeUser">USER</span>'s Vault
+                <br>
+                <span class="text-secondary">Data is encrypted and stored locally via a cross-domain bridge.</span>
             </p>
         </div>
     </div>
 
-    <div id="authenticatedAppGrid" class="app-hidden">
+    <div id="mainAppView" class="view-container app-hidden">
         
-        <header class="app-header-bar">
-            <div class="header-branding">
-                <div class="user-avatar-display" id="avatarDisplay">
-                    <img id="headerAvatarImage" class="app-hidden" src="" alt="User Avatar">
-                    <span id="headerAvatarInitial">V</span>
+        <header id="appHeader" class="app-header app-hidden">
+            <h1 class="app-logo">Secret Keeper</h1>
+            <div class="user-info-area">
+                <span class="username-text" id="mainViewUsername">USER</span>
+                <div class="user-avatar-display small">
+                    <img id="userAvatarDisplayImage" class="app-hidden" src="" alt="User Avatar">
+                    <span id="userAvatarDisplayInitial">U</span>
                 </div>
-                <h1 id="appTitleText">Secret Keeper</h1>
             </div>
-            <button id="modeToggleBtn" onclick="toggleAppTheme()" title="Toggle Theme"><span id="modeToggleIcon"></span></button>
         </header>
 
-        <div class="app-main-content-wrapper">
-            <div class="app-grid-layout">
-                
-                <nav class="grid-sidebar-panel">
-                    <div class="nav-links-menu">
-                        <button class="nav-link-btn" data-target="storeDataView">Store New</button>
-                        <button class="nav-link-btn" data-target="decodeDataView">Retrieve</button>
-                        <button class="nav-link-btn" data-target="settingsConfigView">Settings</button>
-                        <button class="nav-link-btn action-logout" onclick="processVaultLogout()">Sign Out</button>
+        <nav class="app-sidebar">
+            <div class="sidebar-user-section">
+                <div class="user-avatar-display large">
+                    <img id="userAvatarDisplayImage" class="app-hidden" src="" alt="User Avatar">
+                    <span id="userAvatarDisplayInitial">U</span>
+                </div>
+                <h3 id="greetingUserId">USER</h3>
+            </div>
+
+            <ul class="nav-list">
+                <li id="navDashboard" class="nav-item active">
+                    <span class="nav-icon">🏠</span> Dashboard
+                </li>
+                <li id="navAdd" class="nav-item">
+                    <span class="nav-icon">➕</span> New Secret
+                </li>
+                <li id="navSettings" class="nav-item">
+                    <span class="nav-icon">⚙️</span> Settings
+                </li>
+                <li id="navLogout" class="nav-item nav-item-danger">
+                    <span class="nav-icon">🚪</span> Sign Out
+                </li>
+            </ul>
+        </nav>
+
+        <main class="app-main-content">
+            
+            <div id="mainAppView" class="view-panel-area">
+                <h2>Dashboard</h2>
+                <div class="info-card-grid">
+                    <div class="info-card">
+                        <h3>Total Secrets</h3>
+                        <p id="vaultEntriesCount" class="info-count">0</p>
                     </div>
-                </nav>
+                    <div class="info-card">
+                        <h3>Status</h3>
+                        <p class="info-status-ok">SECURE</p>
+                    </div>
+                </div>
 
-                <div class="grid-content-panel">
-                    <div class="panel-scroll-area">
-
-                        <div id="storeDataView" class="view-panel-area app-hidden">
-                            <h2>Store New Secret</h2>
-                            <p style="margin-top: 5px; color: var(--color-text-secondary);">Choose a data type to encrypt and save.</p>
-
-                            <div class="entry-type-tabs">
-                                <button class="type-tab-btn" data-entry-type="credentials">Credentials</button>
-                                <button class="type-tab-btn" data-entry-type="contact">Contact Detail</button>
-                                <button class="type-tab-btn" data-entry-type="securenote">Secure Note</button>
-                                <button class="type-tab-btn" data-entry-type="link">Secure Link</button>
-                            </div>
-
-                            <div id="entry-content-credentials" class="entry-data-tab app-hidden">
-                                <fieldset>
-                                    <legend>Credentials</legend>
-                                    <label for="credEntryID">Access ID / Title</label>
-                                    <input type="text" id="credEntryID" placeholder="Required for retrieval" required>
-                                    
-                                    <label for="credEntryUser">Username / Account ID</label>
-                                    <input type="text" id="credEntryUser" placeholder="Username or Email">
-                                    
-                                    <label for="credEntryPass">Password</label>
-                                    <div class="input-with-toggle-key">
-                                        <input type="password" id="credEntryPass" placeholder="The actual password">
-                                        <span class="key-visibility-toggle" data-target="credEntryPass" onclick="toggleKeyVisibility(this)">👁️</span>
-                                    </div>
-
-                                    <label for="credEntryNotes">Notes</label>
-                                    <textarea id="credEntryNotes" rows="2" placeholder="Relevant details or context"></textarea>
-
-                                    <button class="action-main" onclick="storeNewEntry('credentials')">Encrypt & Save Credential</button>
-                                </fieldset>
-                            </div>
-                            
-                            <div id="entry-content-contact" class="entry-data-tab app-hidden">
-                                <fieldset>
-                                    <legend>Contact Detail</legend>
-                                    <label for="contactEntryID">Access ID / Title</label>
-                                    <input type="text" id="contactEntryID" placeholder="Required for retrieval" required>
-                                    
-                                    <label for="contactEntryName">Contact Name</label>
-                                    <input type="text" id="contactEntryName" placeholder="Full name or nickname">
-                                    
-                                    <label for="contactEntryEmail">Email Address</label>
-                                    <input type="text" id="contactEntryEmail" placeholder="e.g., name@example.com">
-                                    
-                                    <label for="contactEntryPhone">Phone Number)</label>
-                                    <input type="text" id="contactEntryPhone" placeholder="e.g., +1 555-123-4567">
-                                    
-                                    <label for="contactEntryNotes">Notes</label>
-                                    <textarea id="contactEntryNotes" rows="2" placeholder="Address, context, etc."></textarea>
-                                    
-                                    <button class="action-main" onclick="storeNewEntry('contact')">Encrypt & Save Contact</button>
-                                </fieldset>
-                            </div>
-
-                            <div id="entry-content-securenote" class="entry-data-tab app-hidden">
-                                <fieldset>
-                                    <legend>Secure Note</legend>
-                                    <label for="noteEntryID">Access ID / Title</label>
-                                    <input type="text" id="noteEntryID" placeholder="Required for retrieval" required>
-                                    
-                                    <label for="noteEntryContent">Note Content</label>
-                                    <textarea id="noteEntryContent" rows="8" placeholder="The sensitive text, key, or data to be secured."></textarea>
-                                    
-                                    <button class="action-main" onclick="storeNewEntry('securenote')">Encrypt & Save Note</button>
-                                </fieldset>
-                            </div>
-                            
-                            <div id="entry-content-link" class="entry-data-tab app-hidden">
-                                <fieldset>
-                                    <legend>Secure Link</legend>
-                                    <label for="linkEntryID">Access ID / Title</label>
-                                    <input type="text" id="linkEntryID" placeholder="Required for retrieval" required>
-                                    
-                                    <label for="linkEntryAddress">Website URL / Address</label>
-                                    <input type="text" id="linkEntryAddress" placeholder="e.g., https://www.secret-site.com" required>
-                                    
-                                    <label for="linkEntryNotes">Notes / Login Hints</label>
-                                    <textarea id="linkEntryNotes" rows="2" placeholder="Any associated hints or details"></textarea>
-
-                                    <button class="action-main" onclick="storeNewEntry('link')">Encrypt & Save Link</button>
-                                </fieldset>
-                            </div>
-
-                        </div>
-
-                        <div id="decodeDataView" class="view-panel-area app-hidden">
-                            <h2>Retrieve & Decode Secret</h2>
-                            <p style="margin-top: 5px; color: var(--color-text-secondary);">Select a saved ID to view its contents.</p>
-                            
-                            <fieldset>
-                                <legend>Saved Access IDs</legend>
-                                <div id="accessKeyList" class="key-tag-wrapper">
-                                    <p>Loading...</p>
-                                </div>
-                            </fieldset>
-
-                            <fieldset>
-                                <legend>Retrieval Actions</legend>
-                                <input type="text" id="selectedAccessID" placeholder="Selected ID will appear here" readonly>
-                                
-                                <div class="action-group-pair">
-                                    <button class="action-secondary" onclick="retrieveSelectedData()">Decrypt Selected Data</button>
-                                    <button class="action-delete" onclick="deleteSelectedData()">Delete Selected Entry</button>
-                                </div>
-                            </fieldset>
-
-                            <fieldset class="data-output">
-                                <legend>Decrypted Content</legend>
-                                <div id="decodedDataOutput" class="output-display-area">
-                                    <p style="color: var(--color-text-secondary);">Content will appear here after successful decryption.</p>
-                                </div>
-                            </fieldset>
-                        </div>
-                        
-                        <div id="settingsConfigView" class="view-panel-area app-hidden">
-                            <h2>Settings & Maintenance</h2>
-                            <p style="margin-top: 5px; color: var(--color-text-secondary);">Manage your vault's security key, backups, and user preferences.</p>
-                            
-                            <fieldset>
-                                <legend><h3>Vault Identifier</h3></legend>
-                                <label for="updateUserID">Current User Identifier</label>
-                                <input type="text" id="updateUserID" placeholder="Your identifier" readonly>
-                                <button class="action-main" onclick="updateAccountIdentifier()">Update Identifier</button>
-                            </fieldset>
-
-                            <fieldset>
-                                <legend><h3>Change Master Security Key</h3></legend>
-                                <p style="font-size: 0.9rem; color: var(--color-action-danger); margin-bottom: 10px;">
-                                    Changing the key RE-ENCRYPTS the entire vault. Do not proceed if unsure.
-                                </p>
-                                <label for="updateSecurityKeyInput">New Master Security Key</label>
-                                <div class="input-with-toggle-key">
-                                    <input type="password" id="updateSecurityKeyInput" placeholder="Enter a new, strong key">
-                                    <span class="key-visibility-toggle" data-target="updateSecurityKeyInput" onclick="toggleKeyVisibility(this)">👁️</span>
-                                </div>
-                                <button class="action-main" onclick="updateMasterSecurityKey()">Re-Encrypt Vault with New Key</button>
-                            </fieldset>
-
-                            <fieldset>
-                                <legend><h3>Backup & Restore</h3></legend>
-                                <div class="action-group-pair">
-                                    <button class="action-secondary" onclick="exportVaultData()">Export Encrypted Backup</button>
-                                    <label for="importDataFile" class="file-label action-secondary">Import Vault Backup</label>
-                                    <input type="file" id="importDataFile" accept="application/json" onchange="importVaultData(event)" class="app-hidden">
-                                </div>
-                            </fieldset>
-
-                            <fieldset>
-                                <legend><h3>User Avatar</h3></legend>
-                                <div class="user-avatar-display large" style="margin: 15px auto;">
-                                    <img id="configAvatarImage" class="app-hidden" src="" alt="User Avatar">
-                                    <span id="configAvatarInitial">V</span>
-                                </div>
-                                <div class="action-group-pair">
-                                    <label for="avatarFileInput" class="file-label action-secondary">
-                                        Upload Avatar (Max 1MB)
-                                    </label>
-                                    <input type="file" id="avatarFileInput" accept="image/*" onchange="handleAvatarFile(event)" class="app-hidden">
-                                    <button onclick="saveUserAvatar()" class="action-main">Save Avatar</button>
-                                    <button class="action-delete" onclick="removeUserAvatar()">Remove Avatar</button>
-                                </div>
-                            </fieldset>
-
-                            <fieldset>
-                                <legend><h3>Danger Zone</h3></legend>
-                                <button class="action-critical" onclick="wipeAllVaultData()">Delete Account</button>
-                            </fieldset>
-                        </div>
+                <div class="panel-scroll-area">
+                    <h3 style="margin-top: 20px;">Your Vault Entries</h3>
+                    <div id="vaultListContainer" class="vault-list-container">
+                        <p class="text-secondary p-4">Loading vault...</p>
                     </div>
                 </div>
             </div>
-        </div>
+
+            <div id="addView" class="view-panel-area app-hidden">
+                <h2>Add New Secret</h2>
+                <div class="entry-type-tabs">
+                    <button class="entry-type-tab" data-type="login">🔑 Login</button>
+                    <button class="entry-type-tab" data-type="note">📝 Note</button>
+                    <button class="entry-type-tab" data-type="card">💳 Card</button>
+                </div>
+                
+                <div id="entryFormFields" class="form-panel">
+                    </div>
+                
+                <button id="saveEntryButton" class="action-main full-width-button" style="margin-top: 20px;">Save Secret</button>
+            </div>
+
+            <div id="decodeView" class="view-panel-area app-hidden">
+                <button class="action-secondary" onclick="showView('mainAppView')" style="margin-bottom: 15px;">
+                    ← Back to Dashboard
+                </button>
+                <div class="decode-panel">
+                    <h2 id="decodeTitle">Entry Title</h2>
+                    <div class="grid-content-panel">
+                        <div id="decodeDetails" class="decode-output-grid">
+                            <p class="text-secondary">Decrypting...</p>
+                        </div>
+                    </div>
+                    <div class="action-group-pair" style="margin-top: 20px;">
+                        <input type="hidden" id="decodeEntryId">
+                        <button id="decodeDeleteButton" class="action-critical">Delete Entry</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="settingsView" class="view-panel-area app-hidden">
+                <h2>Settings</h2>
+                <div class="settings-grid">
+                    
+                    <div class="settings-panel">
+                        <fieldset>
+                            <legend><h3>General Settings</h3></legend>
+                            
+                            <label for="themeSelector">App Theme</label>
+                            <select id="themeSelector" onchange="saveAppTheme(this.value)">
+                                <option value="dark">Dark Mode</option>
+                                <option value="light">Light Mode</option>
+                            </select>
+
+                            <label for="updateUserID">User Identifier</label>
+                            <div class="action-group-pair">
+                                <input type="text" id="updateUserID" placeholder="Your ID">
+                                <button id="updateIDButton" class="action-main">Update ID</button>
+                            </div>
+                        </fieldset>
+                    </div>
+
+                    <div class="settings-panel">
+                        <fieldset>
+                            <legend><h3>Master Key (Re-encryption)</h3></legend>
+                            <p class="text-danger">Changing this key will re-encrypt your entire vault.</p>
+                            
+                            <label for="newMasterKeyInput">New Master Key</label>
+                            <input type="password" id="newMasterKeyInput" placeholder="New Key" required>
+                            
+                            <label for="confirmMasterKeyInput">Confirm New Master Key</label>
+                            <input type="password" id="confirmMasterKeyInput" placeholder="Confirm Key" required>
+                            
+                            <button id="updateMasterKeyButton" class="action-critical full-width-button">Change Master Key</button>
+                        </fieldset>
+                    </div>
+
+                    <div class="settings-panel">
+                        <fieldset>
+                            <legend><h3>Avatar</h3></legend>
+                            <div class="user-avatar-display large" style="margin: 15px auto;">
+                                <img id="configAvatarImage" class="app-hidden" src="" alt="User Avatar">
+                                <span id="configAvatarInitial">U</span>
+                            </div>
+                            <div class="action-group-pair">
+                                <label for="avatarFileInput" class="file-label action-secondary">
+                                    Upload Avatar (Max 1MB)
+                                </label>
+                                <input type="file" id="avatarFileInput" accept="image/*" onchange="handleAvatarFile(event)" class="app-hidden">
+                                <button onclick="saveUserAvatar()" class="action-main">Save Avatar</button>
+                                <button class="action-delete" onclick="removeUserAvatar()">Remove Avatar</button>
+                            </div>
+                        </fieldset>
+                    </div>
+
+                    <div class="settings-panel">
+                        <fieldset>
+                            <legend><h3>Danger Zone</h3></legend>
+                            <button class="action-critical" onclick="wipeAllVaultData()">Delete All Data</button>
+                            <p class="text-secondary" style="margin-top: 10px;">Warning: This deletes all locally stored data and is irreversible.</p>
+                        </fieldset>
+                    </div>
+                </div>
+            </div>
+            
+        </main>
     </div>
 
     <script src="script.js"></script>
