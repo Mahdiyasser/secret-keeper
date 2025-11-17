@@ -620,7 +620,7 @@ function toggleKeyVisibility(el) {
     if (targetInput && targetInput.tagName === 'INPUT') {
         if (targetInput.type === 'password') {
             targetInput.type = 'text';
-            el.textContent = 'Hide';
+            el.textContent = '🙈';
         } else {
             targetInput.type = 'password';
             el.textContent = '👁️';
