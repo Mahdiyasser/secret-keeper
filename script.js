@@ -1015,6 +1015,13 @@ function copyToClipboard(text, buttonElement) {
 
 function toggleKeyVisibility(el) {
     const secretSpan = el.parentElement.querySelector('.secret-value');
+    
+    // FIX: Add null check to prevent TypeError when 'secretSpan' is not found.
+    if (!secretSpan) {
+        console.warn("Could not find the password element. Check HTML structure for .secret-value.");
+        return; 
+    }
+    
     // We only decrypt if we have the CURRENT_MASTER_KEY
     if (secretSpan.textContent.startsWith('***') && CURRENT_MASTER_KEY) {
         // Need to retrieve the encrypted data to decrypt the password
@@ -1047,3 +1054,5 @@ function maskValue(value) {
     // Only mask if the value is long enough to bother
     return value.length > 5 ? '***' + value.slice(0, 3) + '...' : '***';
 }
+
+// NOTE: The function generateOTP is explicitly omitted as it was not in your original "working" file.
