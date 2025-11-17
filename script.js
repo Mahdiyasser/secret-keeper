@@ -1,133 +1,87 @@
 /*
     SCRIPT.JS
     Secure Vault Keeper Application Logic with AES Encryption
-    MODIFIED: Now uses Cross-Origin postMessage to access remote storage on storage.mahdiyasser.site
 */
 
 // --- CONSTANTS & GLOBAL STATE ---
 
-// UPDATED KEY PREFIX: 'skr_' for remote storage
 const STORAGE_KEY_USER_ID = 'skr_userId';
 const STORAGE_KEY_VAULT_DATA = 'skr_vaultData';
 const STORAGE_KEY_AVATAR = 'skr_avatar';
 const STORAGE_KEY_THEME = 'skr_theme';
-const MAX_AVATAR_SIZE_KB = 1024; // 1024KB limit
+const MAX_AVATAR_SIZE_KB = 1024;
 
 let CURRENT_MASTER_KEY = null;
-let VAULT_DATA = {}; // Structure: { userId: '...', entries: { accessId: { type: '...', encryptedData: '...' } } }
+let VAULT_DATA = {};
 let CURRENT_USER_ID = 'USER';
 
-// --- REMOTE STORAGE BRIDGE SETUP ---
+// --- BRIDGE COMMUNICATION STATE ---
 
-// The URL for the storage utility page on the separate domain
-const STORAGE_BRIDGE_URL = 'https://storage.mahdiyasser.site/';
+const STORAGE_BRIDGE_ORIGIN = 'https://storage.mahdiyasser.site';
 let storageBridgeIframe = null;
-let bridgeReady = false;
-let pendingRequests = {};
+const pendingStorageRequests = new Map();
 let messageIdCounter = 0;
 
-/**
- * Initializes the invisible iframe and sets up the message listener.
- * All subsequent storage operations must wait for this to complete.
- */
-function initializeStorageBridge() {
-    return new Promise(resolve => {
-        storageBridgeIframe = document.createElement('iframe');
-        storageBridgeIframe.style.display = 'none'; // Keep it invisible
-        storageBridgeIframe.src = STORAGE_BRIDGE_URL;
-
-        storageBridgeIframe.onload = () => {
-            bridgeReady = true;
-            console.log('Storage bridge connected and ready.');
-            resolve();
-        };
-
-        // Listen for responses from the storage bridge
-        window.addEventListener('message', (event) => {
-            // Check origin security! Only accept messages from the storage domain.
-            if (event.origin !== 'https://storage.mahdiyasser.site') {
-                return;
-            }
-
-            try {
-                const response = JSON.parse(event.data);
-                const id = response.id;
-
-                if (id && pendingRequests[id]) {
-                    const { resolve, reject } = pendingRequests[id];
-                    delete pendingRequests[id];
-
-                    if (response.success) {
-                        // Resolve with the data (null for set/remove, string for get)
-                        resolve(response.data);
-                    } else {
-                        reject(new Error(`Remote storage operation failed for action: ${response.action}`));
-                    }
-                }
-            } catch (e) {
-                console.error('Error processing message from storage bridge:', e);
-            }
-        });
-
-        document.body.appendChild(storageBridgeIframe);
-    });
-}
-
-/**
- * Sends a message to the storage bridge and returns a Promise for the result.
- * @param {string} action - 'set', 'get', or 'remove'
- * @param {string} key - The localStorage key
- * @param {string} [value] - The value to set (for 'set' action)
- * @returns {Promise<string|null>} The stored value for 'get', or null for 'set'/'remove'.
- */
-function remoteStorageOperation(action, key, value) {
-    if (!bridgeReady) {
-        return Promise.reject(new Error('Storage bridge is not ready.'));
-    }
-
-    const messageId = messageIdCounter++;
-    const message = { id: messageId, action, key, value };
-
-    // Create a promise to resolve when the response comes back
+function sendBridgeMessage(action, key, value) {
     return new Promise((resolve, reject) => {
-        pendingRequests[messageId] = { resolve, reject };
-
-        try {
-            // Send message to the iframe
-            storageBridgeIframe.contentWindow.postMessage(JSON.stringify(message), 'https://storage.mahdiyasser.site');
-        } catch (error) {
-            delete pendingRequests[messageId];
-            reject(error);
+        if (!storageBridgeIframe || !storageBridgeIframe.contentWindow) {
+            reject(new Error("Storage bridge not initialized or ready."));
+            return;
         }
+        const id = (++messageIdCounter).toString();
+        pendingStorageRequests.set(id, resolve);
+        const message = { id, action, key };
+        if (value !== undefined) message.value = value;
+
+        storageBridgeIframe.contentWindow.postMessage(
+            JSON.stringify(message),
+            STORAGE_BRIDGE_ORIGIN
+        );
     });
 }
 
-const remoteGetItem = (key) => remoteStorageOperation('get', key);
-const remoteSetItem = (key, value) => remoteStorageOperation('set', key, value);
-const remoteRemoveItem = (key) => remoteStorageOperation('remove', key);
+window.addEventListener('message', (event) => {
+    if (event.origin !== STORAGE_BRIDGE_ORIGIN) {
+        return;
+    }
+    try {
+        const response = JSON.parse(event.data);
+        if (response.id && pendingStorageRequests.has(response.id)) {
+            const resolve = pendingStorageRequests.get(response.id);
+            pendingStorageRequests.delete(response.id);
+            resolve(response);
+        }
+    } catch (e) {
+        // Silent fail on parse error
+    }
+});
+
+// --- END BRIDGE COMMUNICATION STATE ---
+
 
 // --- INITIALIZATION & UI SETUP ---
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Initialize the storage bridge and wait for it to be ready
-    await initializeStorageBridge(); 
+    // Inject and wait for iframe
+    storageBridgeIframe = document.createElement('iframe');
+    storageBridgeIframe.src = STORAGE_BRIDGE_ORIGIN;
+    storageBridgeIframe.style.display = 'none';
+    document.body.appendChild(storageBridgeIframe);
     
-    // 2. Load theme and application state
+    await new Promise(resolve => { storageBridgeIframe.onload = resolve; });
+    
     await loadAppTheme();
     await initializeApp();
-    
-    // 3. Setup UI listeners
     setupNavigation();
     setupEntryTypeTabs();
     
-    // Wire up buttons for authentication view
     document.getElementById('authActionButton').onclick = performAuthentication;
 });
 
 async function initializeApp() {
-    // Use remote storage
-    const storedUserId = await remoteGetItem(STORAGE_KEY_USER_ID); 
-    
+    const response = await sendBridgeMessage('get', STORAGE_KEY_USER_ID);
+    const storedUserId = response.data;
+
     if (storedUserId) {
         CURRENT_USER_ID = storedUserId;
         document.getElementById('vaultUsernameInput').value = storedUserId;
@@ -143,719 +97,757 @@ async function initializeApp() {
 
 /**
  * Encrypts a plaintext string using the current master key.
- * @param {string} plaintext - The data to encrypt.
- * @returns {string} The encrypted ciphertext.
+ * @param {string} plaintext 
+ * @returns {string} Encrypted string (CryptoJS format).
  */
 function encryptData(plaintext) {
-    if (!CURRENT_MASTER_KEY) {
-        console.error("No master key loaded for encryption.");
-        return null;
-    }
+    if (!CURRENT_MASTER_KEY) throw new Error("Encryption failed: Master Key not set.");
     return CryptoJS.AES.encrypt(plaintext, CURRENT_MASTER_KEY).toString();
 }
 
 /**
- * Decrypts a ciphertext string using the current master key.
- * @param {string} ciphertext - The data to decrypt.
- * @returns {string|null} The decrypted plaintext or null if decryption fails.
+ * Decrypts an encrypted string using a given key.
+ * @param {string} encryptedText 
+ * @param {string} decryptionKey The key to use for decryption.
+ * @returns {string|null} Decrypted plaintext or null if decryption fails.
  */
-function decryptData(ciphertext) {
-    if (!CURRENT_MASTER_KEY) {
-        console.error("No master key loaded for decryption.");
-        return null;
-    }
+function decryptData(encryptedText, decryptionKey) {
+    if (!decryptionKey) return null;
     try {
-        const bytes = CryptoJS.AES.decrypt(ciphertext, CURRENT_MASTER_KEY);
-        const plaintext = bytes.toString(CryptoJS.enc.Utf8);
-        if (plaintext.length === 0 && ciphertext.length > 0) {
-            // This usually means the key was incorrect
+        const bytes = CryptoJS.AES.decrypt(encryptedText, decryptionKey);
+        if (!bytes || bytes.sigBytes === 0) {
             return null;
         }
-        return plaintext;
+        return bytes.toString(CryptoJS.enc.Utf8);
     } catch (e) {
-        console.error("Decryption failed:", e);
+        console.error("Decryption Error:", e);
         return null;
     }
 }
 
-// --- AUTHENTICATION & VAULT LOADING ---
+// --- AUTHENTICATION & VAULT MANAGEMENT ---
 
-/**
- * Handles the login/register process based on vault data existence.
- */
 async function performAuthentication() {
-    const userId = document.getElementById('vaultUsernameInput').value.trim();
-    const masterKey = document.getElementById('masterSecurityKeyInput').value;
+    const userIdInput = document.getElementById('vaultUsernameInput').value.trim();
+    const masterKeyInput = document.getElementById('masterSecurityKeyInput').value;
 
-    if (!userId || !masterKey) {
-        showAppPopup('Error', 'User Identifier and Master Key are required.', false);
-        return;
+    if (!userIdInput || !masterKeyInput) {
+        return showAppPopup('Missing Information', 'User Identifier and Master Security Key are required.', false, false);
     }
 
-    const vaultDataExists = await loadVaultData(userId, masterKey);
+    const userIdResponse = await sendBridgeMessage('get', STORAGE_KEY_USER_ID);
+    const isSetup = !userIdResponse.data;
+    CURRENT_MASTER_KEY = masterKeyInput;
     
-    if (!vaultDataExists) {
-        // Vault does not exist, prompt for registration
-        const confirmed = await showAppPopup(
-            'New Vault', 
-            `A vault for "${userId}" does not exist. Do you want to create a new one using this Master Key?`, 
-            true
-        );
-        if (confirmed) {
-            // Register new vault
-            CURRENT_USER_ID = userId;
-            CURRENT_MASTER_KEY = masterKey;
-            VAULT_DATA = { userId: CURRENT_USER_ID, entries: {} };
-            await saveUserId(CURRENT_USER_ID);
-            await saveVaultData();
-            processVaultLogin();
-        }
+    if (isSetup) {
+        await handleInitialSetup(userIdInput);
     } else {
-        // Successful login
-        processVaultLogin();
+        await handleLoginAttempt(userIdInput);
     }
 }
 
-/**
- * Attempts to load vault data for a user ID and master key.
- * @param {string} userId 
- * @param {string} masterKey 
- * @returns {Promise<boolean>} True if data was loaded successfully, false otherwise.
- */
-async function loadVaultData(userId, masterKey) {
-    const encryptedData = await remoteGetItem(STORAGE_KEY_VAULT_DATA);
+async function handleInitialSetup(userIdInput) {
+    await sendBridgeMessage('set', STORAGE_KEY_USER_ID, userIdInput);
+    VAULT_DATA = { userId: userIdInput, entries: {} };
+    
+    const encryptedVault = encryptData(JSON.stringify(VAULT_DATA));
+    await sendBridgeMessage('set', STORAGE_KEY_VAULT_DATA, encryptedVault);
 
-    if (!encryptedData) {
-        return false; // No data exists
+    CURRENT_USER_ID = userIdInput;
+    await updateAvatarDisplay(CURRENT_USER_ID);
+
+    showAppPopup('Setup Complete', 'New Vault created and secured! You are now logged in.', false, true);
+    document.getElementById('masterSecurityKeyInput').value = ''; 
+    showAuthenticatedApp();
+}
+
+async function handleLoginAttempt(userIdInput) {
+    const vaultResponse = await sendBridgeMessage('get', STORAGE_KEY_VAULT_DATA);
+    const storedEncryptedVault = vaultResponse.data;
+
+    const userResponse = await sendBridgeMessage('get', STORAGE_KEY_USER_ID);
+    const storedUserId = userResponse.data;
+
+
+    if (storedUserId !== userIdInput) {
+        return showAppPopup('Login Failed', 'The User Identifier does not match the stored account.', false, false);
     }
 
-    // Temporarily set the key to attempt decryption
-    CURRENT_MASTER_KEY = masterKey;
-    const decryptedJson = decryptData(encryptedData);
+    const decryptedVaultString = decryptData(storedEncryptedVault, CURRENT_MASTER_KEY);
 
-    if (!decryptedJson) {
-        showAppPopup('Authentication Failed', 'Incorrect Master Key or corrupted data.', false);
-        CURRENT_MASTER_KEY = null;
-        return true; // Data exists, but key was wrong
+    if (decryptedVaultString === null) {
+        return showAppPopup('Access Denied', 'Invalid Master Security Key. Please try again.', false, false);
     }
 
     try {
-        const loadedData = JSON.parse(decryptedJson);
-        if (loadedData.userId !== userId) {
-             // Although unlikely with the current storage design, good to check
-             showAppPopup('Authentication Failed', 'Data is for a different User Identifier. Check your input.', false);
-             CURRENT_MASTER_KEY = null;
-             return true;
-        }
+        VAULT_DATA = JSON.parse(decryptedVaultString);
+        CURRENT_USER_ID = userIdInput;
+        await updateAvatarDisplay(CURRENT_USER_ID);
         
-        VAULT_DATA = loadedData;
-        CURRENT_USER_ID = userId;
-        return true; // Success
+        showAppPopup('Vault Unlocked', 'You have successfully logged in.', false, true);
+        document.getElementById('masterSecurityKeyInput').value = ''; 
+        showAuthenticatedApp();
     } catch (e) {
-        showAppPopup('Data Error', 'Vault data is corrupted and cannot be parsed.', false);
-        CURRENT_MASTER_KEY = null;
-        return true;
+        console.error("Vault Parse Error:", e);
+        showAppPopup('Data Error', 'Vault data is corrupted and cannot be loaded.', false, false);
     }
 }
 
 /**
- * Saves the current user ID to remote storage.
- * @param {string} userId 
- */
-async function saveUserId(userId) {
-    await remoteSetItem(STORAGE_KEY_USER_ID, userId);
-    document.getElementById('updateUserID').value = userId; // Update settings view
-}
-
-/**
- * Encrypts and saves the entire VAULT_DATA object to remote storage.
+ * Persists the current VAULT_DATA object to localStorage (encrypted).
  */
 async function saveVaultData() {
-    const json = JSON.stringify(VAULT_DATA);
-    const encrypted = encryptData(json);
-    if (encrypted) {
-        await remoteSetItem(STORAGE_KEY_VAULT_DATA, encrypted);
-        console.log('Vault data saved remotely.');
-    } else {
-        console.error('Failed to encrypt vault data.');
-    }
-}
-
-function processVaultLogin() {
-    showAppPopup('Login Success', `Welcome back, ${CURRENT_USER_ID}! Vault is open.`, false, true);
-    document.getElementById('greetingUserId').textContent = CURRENT_USER_ID;
-    document.getElementById('mainViewUsername').textContent = CURRENT_USER_ID;
-    document.getElementById('welcomeUser').textContent = CURRENT_USER_ID;
-    updateVaultUI();
-    showView('mainAppView');
-}
-
-function processVaultLogout() {
-    CURRENT_MASTER_KEY = null;
-    VAULT_DATA = {};
-    document.getElementById('masterSecurityKeyInput').value = ''; 
-    showAppPopup('Signed Out', 'You have securely signed out. The Master Key has been cleared from memory.', false, true);
-    showView('loginGateView');
-}
-
-// --- UI / DATA MANAGEMENT ---
-
-function updateVaultUI() {
-    document.getElementById('vaultEntriesCount').textContent = Object.keys(VAULT_DATA.entries).length;
-    renderVaultEntries();
-}
-
-function renderVaultEntries() {
-    const listContainer = document.getElementById('vaultListContainer');
-    listContainer.innerHTML = '';
-    const entries = Object.values(VAULT_DATA.entries);
-
-    if (entries.length === 0) {
-        listContainer.innerHTML = '<p class="text-secondary p-4">Your vault is empty. Add a new secret to get started.</p>';
-        return;
-    }
-
-    entries.sort((a, b) => a.title.localeCompare(b.title));
-
-    entries.forEach(entry => {
-        const item = document.createElement('div');
-        item.className = 'vault-list-item';
-        item.setAttribute('data-id', entry.accessId);
-        item.innerHTML = `
-            <span class="entry-icon entry-type-${entry.type}">
-                ${getEntryIcon(entry.type)}
-            </span>
-            <span class="entry-title">${entry.title}</span>
-            <span class="entry-meta">Type: ${entry.type}</span>
-            <button class="action-secondary action-list-view" onclick="viewEntry('${entry.accessId}')">View</button>
-        `;
-        listContainer.appendChild(item);
-    });
-}
-
-function getEntryIcon(type) {
-    switch(type) {
-        case 'login': return '🔑';
-        case 'note': return '📝';
-        case 'card': return '💳';
-        default: return '🔒';
-    }
-}
-
-/**
- * Displays the decode panel for an entry.
- * @param {string} accessId 
- */
-function viewEntry(accessId) {
-    const entry = VAULT_DATA.entries[accessId];
-    if (!entry) return;
-
-    // Reset decode panel
-    document.getElementById('decodeTitle').textContent = entry.title;
-    document.getElementById('decodeDetails').innerHTML = '<p class="text-secondary">Decrypting...</p>';
-    document.getElementById('decodeEntryId').value = entry.accessId;
-    document.getElementById('decodeDeleteButton').onclick = () => confirmDeleteEntry(accessId);
-
-    showView('decodeView');
-    
-    // Decrypt and display data asynchronously
-    const decryptedContent = decryptData(entry.encryptedData);
-    if (decryptedContent) {
-        const detailsHtml = formatDecryptedContent(entry.type, decryptedContent);
-        document.getElementById('decodeDetails').innerHTML = detailsHtml;
-    } else {
-        document.getElementById('decodeDetails').innerHTML = '<p class="text-danger">Failed to decrypt. Master Key may have changed or data is corrupted.</p>';
-    }
-}
-
-/**
- * Formats the decrypted JSON content into readable HTML.
- * @param {string} type 
- * @param {string} jsonString 
- * @returns {string} HTML string
- */
-function formatDecryptedContent(type, jsonString) {
     try {
-        const data = JSON.parse(jsonString);
-        let html = `<div class="decode-output-grid">`;
-        
-        for (const [key, value] of Object.entries(data)) {
-            // Skip the title as it's already displayed
-            if (key === 'title') continue; 
-            
-            let displayValue = value;
-            let displayKey = key.charAt(0).toUpperCase() + key.slice(1);
-            let copyButton = `<button class="action-copy" onclick="copyToClipboard('${value}')">Copy</button>`;
-
-            // Special handling for passwords
-            if (key.toLowerCase().includes('password') || key.toLowerCase().includes('pin')) {
-                displayValue = '••••••••';
-                copyButton = `<button class="action-copy action-danger" onclick="copyToClipboard('${value}')">Copy (Hidden)</button>`;
-            }
-
-            html += `
-                <div class="grid-label">${displayKey}</div>
-                <div class="grid-value">
-                    <span class="font-mono">${displayValue}</span>
-                    ${copyButton}
-                </div>
-            `;
-        }
-        html += '</div>';
-        return html;
-
+        const jsonString = JSON.stringify(VAULT_DATA);
+        const encryptedData = encryptData(jsonString);
+        await sendBridgeMessage('set', STORAGE_KEY_VAULT_DATA, encryptedData);
+        return true;
     } catch (e) {
-        return `<p class="text-danger">Failed to parse JSON content: ${e.message}</p><pre>${jsonString}</pre>`;
+        console.error("Save Vault Error:", e);
+        showAppPopup('Storage Error', 'Could not save vault data. The bridge might be unavailable or data is too large.', false, false);
+        return false;
     }
 }
 
-
-// --- ADD/EDIT ENTRY ---
-
-/**
- * Sets up the add/edit form based on the selected type.
- * @param {string} type 
- */
-function setupEntryTypeTabs() {
-    const tabs = document.querySelectorAll('.entry-type-tab');
-    tabs.forEach(tab => {
-        tab.onclick = () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            const type = tab.getAttribute('data-type');
-            showEntryForm(type);
-        };
-    });
-    // Default to 'login' tab on load
-    document.querySelector('.entry-type-tab[data-type="login"]').click();
+function showAuthenticatedApp() {
+    showView('authenticatedAppGrid');
+    updateAccessKeyList();
+    const firstTab = document.querySelector('#storeDataView .type-tab-btn');
+    if(firstTab) firstTab.click(); 
 }
 
-/**
- * Renders the appropriate form fields for the selected entry type.
- * @param {string} type 
- */
-function showEntryForm(type) {
-    const formContainer = document.getElementById('entryFormFields');
-    formContainer.innerHTML = '';
-    
-    // Always include Title
-    let html = `
-        <label for="entryTitle">Title/Service Name</label>
-        <input type="text" id="entryTitle" placeholder="e.g., Google, Bank Account, Private Note Title" required>
-    `;
+// --- NAVIGATION & UI FLOW ---
 
-    switch (type) {
-        case 'login':
-            html += `
-                <label for="entryUsername">Username/Email</label>
-                <input type="text" id="entryUsername" placeholder="your.name@example.com" required>
-                <label for="entryPassword">Password</label>
-                <input type="password" id="entryPassword" placeholder="••••••••" required>
-                <label for="entryUrl">Website URL (Optional)</label>
-                <input type="text" id="entryUrl" placeholder="https://www.example.com">
-            `;
-            break;
-        case 'note':
-            html += `
-                <label for="entryContent">Secret Note Content</label>
-                <textarea id="entryContent" rows="8" placeholder="Enter your secret or detailed note here." required></textarea>
-            `;
-            break;
-        case 'card':
-            html += `
-                <label for="entryCardholder">Cardholder Name</label>
-                <input type="text" id="entryCardholder" required>
-                <label for="entryCardNumber">Card Number</label>
-                <input type="text" id="entryCardNumber" required>
-                <label for="entryCvv">CVV/CVC</label>
-                <input type="text" id="entryCvv" maxlength="4" required>
-                <div class="action-group-pair">
-                    <div style="flex-grow: 1;">
-                        <label for="entryExpiryMonth">Expiry Month</label>
-                        <input type="number" id="entryExpiryMonth" placeholder="MM" min="1" max="12" required>
-                    </div>
-                    <div style="flex-grow: 1;">
-                        <label for="entryExpiryYear">Expiry Year</label>
-                        <input type="number" id="entryExpiryYear" placeholder="YYYY" min="${new Date().getFullYear()}" required>
-                    </div>
-                </div>
-            `;
-            break;
-    }
-    
-    formContainer.innerHTML = html;
-    document.getElementById('saveEntryButton').onclick = () => saveNewEntry(type);
-}
-
-/**
- * Collects form data, encrypts it, and saves it to the vault.
- * @param {string} type 
- */
-async function saveNewEntry(type) {
-    const title = document.getElementById('entryTitle').value.trim();
-    if (!title) {
-        showAppPopup('Validation Error', 'The title is required.', false);
-        return;
-    }
-
-    let rawData = { title };
-    let isValid = true;
-
-    switch (type) {
-        case 'login':
-            rawData.username = document.getElementById('entryUsername').value.trim();
-            rawData.password = document.getElementById('entryPassword').value;
-            rawData.url = document.getElementById('entryUrl').value.trim();
-            if (!rawData.username || !rawData.password) isValid = false;
-            break;
-        case 'note':
-            rawData.content = document.getElementById('entryContent').value;
-            if (!rawData.content) isValid = false;
-            break;
-        case 'card':
-            rawData.cardholder = document.getElementById('entryCardholder').value.trim();
-            rawData.cardNumber = document.getElementById('entryCardNumber').value.trim();
-            rawData.cvv = document.getElementById('entryCvv').value.trim();
-            rawData.expiryMonth = document.getElementById('entryExpiryMonth').value.trim();
-            rawData.expiryYear = document.getElementById('entryExpiryYear').value.trim();
-            if (!rawData.cardholder || !rawData.cardNumber || !rawData.cvv) isValid = false;
-            break;
-    }
-
-    if (!isValid) {
-        showAppPopup('Validation Error', 'Please fill in all required fields for this entry type.', false);
-        return;
-    }
-
-    const jsonString = JSON.stringify(rawData);
-    const encryptedData = encryptData(jsonString);
-
-    if (encryptedData) {
-        const newId = 'entry_' + Date.now();
-        VAULT_DATA.entries[newId] = {
-            accessId: newId,
-            type: type,
-            title: title,
-            encryptedData: encryptedData
-        };
-
-        // Save to remote storage
-        await saveVaultData(); 
-
-        showAppPopup('Success', `New ${type} entry "${title}" saved!`, false, true);
-        
-        // Reset and return to dashboard
-        document.getElementById('entryTitle').value = '';
-        showView('mainAppView');
-        updateVaultUI();
-    } else {
-        showAppPopup('Encryption Error', 'Failed to encrypt data. Check if Master Key is set.', false);
-    }
-}
-
-/**
- * Confirms and deletes a vault entry.
- * @param {string} accessId 
- */
-function confirmDeleteEntry(accessId) {
-    showAppPopup(
-        'Confirm Deletion',
-        'Are you sure you want to permanently delete this entry? This action cannot be undone.',
-        true,
-        false,
-        async () => {
-            delete VAULT_DATA.entries[accessId];
-            await saveVaultData();
-            showAppPopup('Deleted', 'Entry permanently removed.', false, true);
-            showView('mainAppView');
-            updateVaultUI();
-        }
-    );
-}
-
-// --- CONFIGURATION & SETTINGS ---
-
-/**
- * Saves a new user ID. Requires re-saving the entire vault.
- */
-async function updateUserID() {
-    const newUserId = document.getElementById('updateUserID').value.trim();
-    if (!newUserId || newUserId === CURRENT_USER_ID) {
-        return;
-    }
-
-    const confirmed = await showAppPopup(
-        'Confirm Change', 
-        `Are you sure you want to change your User ID from "${CURRENT_USER_ID}" to "${newUserId}"? This will update your vault's internal identifier.`, 
-        true
-    );
-
-    if (confirmed) {
-        CURRENT_USER_ID = newUserId;
-        VAULT_DATA.userId = newUserId;
-        // Save the new ID and re-save the entire vault data with the updated internal ID
-        await saveUserId(newUserId);
-        await saveVaultData();
-        
-        document.getElementById('greetingUserId').textContent = CURRENT_USER_ID;
-        document.getElementById('mainViewUsername').textContent = CURRENT_USER_ID;
-        document.getElementById('welcomeUser').textContent = CURRENT_USER_ID;
-        showAppPopup('Success', `User Identifier successfully updated to ${newUserId}`, false, true);
-    } else {
-        // Revert input field if canceled
-        document.getElementById('updateUserID').value = CURRENT_USER_ID;
-    }
-}
-
-/**
- * Saves a new master key. Requires re-encrypting the entire vault.
- */
-async function updateMasterKey() {
-    const newMasterKey = document.getElementById('newMasterKeyInput').value;
-    const confirmKey = document.getElementById('confirmMasterKeyInput').value;
-
-    if (!newMasterKey || newMasterKey !== confirmKey) {
-        showAppPopup('Error', 'New keys do not match or are empty.', false);
-        return;
-    }
-
-    const confirmed = await showAppPopup(
-        'Master Key Change', 
-        'WARNING: This will re-encrypt your entire vault. Proceed only if you are certain you will remember the new key.', 
-        true
-    );
-
-    if (confirmed) {
-        // Save current key temporarily to re-encrypt
-        const oldKey = CURRENT_MASTER_KEY;
-        CURRENT_MASTER_KEY = newMasterKey;
-        
-        // The easiest way is to re-encrypt the entire VAULT_DATA
-        await saveVaultData(); 
-
-        // Clear input fields
-        document.getElementById('newMasterKeyInput').value = '';
-        document.getElementById('confirmMasterKeyInput').value = '';
-
-        showAppPopup('Success', 'Master Key successfully updated and vault re-encrypted.', false, true);
-    }
-}
-
-/**
- * Deletes all stored data (User ID, Vault Data, Avatar, Theme).
- */
-function wipeAllVaultData() {
-    showAppPopup(
-        'CRITICAL ACTION: DELETE ALL DATA', 
-        'Are you absolutely sure you want to delete ALL data (vault, user ID, avatar, theme)? This is irreversible!', 
-        true, 
-        false, 
-        async () => {
-            await remoteRemoveItem(STORAGE_KEY_USER_ID);
-            await remoteRemoveItem(STORAGE_KEY_VAULT_DATA);
-            await remoteRemoveItem(STORAGE_KEY_AVATAR);
-            await remoteRemoveItem(STORAGE_KEY_THEME);
-            
-            // Reset in-memory state
-            CURRENT_MASTER_KEY = null;
-            VAULT_DATA = {};
-            CURRENT_USER_ID = 'USER';
-            
-            showAppPopup('Wiped', 'All data has been permanently deleted from storage. You are starting fresh.', false, true);
-            // Reinitialize the app
-            document.getElementById('vaultUsernameInput').value = '';
-            document.getElementById('masterSecurityKeyInput').value = ''; 
-            await updateAvatarDisplay(CURRENT_USER_ID);
-            showView('loginGateView');
-        }
-    );
-}
-
-// --- AVATAR MANAGEMENT ---
-
-let userAvatarBase64 = null;
-
-function handleAvatarFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    if (file.size > MAX_AVATAR_SIZE_KB * 1024) {
-        showAppPopup('File Too Large', `The avatar file must be less than ${MAX_AVATAR_SIZE_KB}KB.`, false);
-        event.target.value = ''; // Clear file input
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        userAvatarBase64 = e.target.result;
-        updateAvatarDisplay(CURRENT_USER_ID, userAvatarBase64);
-    };
-    reader.onerror = () => {
-        showAppPopup('File Read Error', 'Could not read the selected file.', false);
-        userAvatarBase64 = null;
-    };
-    reader.readAsDataURL(file);
-}
-
-async function saveUserAvatar() {
-    if (!userAvatarBase64) {
-        showAppPopup('No Avatar', 'Please select a file to upload first.', false);
-        return;
-    }
-
-    await remoteSetItem(STORAGE_KEY_AVATAR, userAvatarBase64);
-    showAppPopup('Saved', 'New avatar uploaded and saved.', false, true);
-    userAvatarBase64 = null; // Clear staging area
-    document.getElementById('avatarFileInput').value = ''; // Clear file input
-    // The display is already updated by handleAvatarFile, but we can confirm reload
-    await updateAvatarDisplay(CURRENT_USER_ID); 
-}
-
-async function removeUserAvatar() {
-    await remoteRemoveItem(STORAGE_KEY_AVATAR);
-    userAvatarBase64 = null;
-    document.getElementById('avatarFileInput').value = '';
-    await updateAvatarDisplay(CURRENT_USER_ID);
-    showAppPopup('Removed', 'Avatar successfully removed.', false, true);
-}
-
-async function updateAvatarDisplay(userId, base64Override = null) {
-    const base64Data = base64Override || await remoteGetItem(STORAGE_KEY_AVATAR);
-    const avatarImg = document.getElementById('configAvatarImage');
-    const avatarInitial = document.getElementById('configAvatarInitial');
-    const displayImg = document.getElementById('userAvatarDisplayImage');
-    const displayInitial = document.getElementById('userAvatarDisplayInitial');
-
-    const initial = userId ? userId.charAt(0).toUpperCase() : 'U';
-
-    if (base64Data) {
-        avatarImg.src = base64Data;
-        avatarImg.classList.remove('app-hidden');
-        avatarInitial.classList.add('app-hidden');
-        
-        if(displayImg) displayImg.src = base64Data;
-        if(displayImg) displayImg.classList.remove('app-hidden');
-        if(displayInitial) displayInitial.classList.add('app-hidden');
-
-    } else {
-        avatarImg.classList.add('app-hidden');
-        avatarInitial.classList.remove('app-hidden');
-        avatarInitial.textContent = initial;
-
-        if(displayImg) displayImg.classList.add('app-hidden');
-        if(displayInitial) displayInitial.classList.remove('app-hidden');
-        if(displayInitial) displayInitial.textContent = initial;
-    }
-}
-
-// --- THEME MANAGEMENT ---
-
-async function saveAppTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    await remoteSetItem(STORAGE_KEY_THEME, theme);
-    document.getElementById('themeSelector').value = theme;
-}
-
-async function loadAppTheme() {
-    const storedTheme = await remoteGetItem(STORAGE_KEY_THEME);
-    const theme = storedTheme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-    document.documentElement.setAttribute('data-theme', theme);
-    const themeSelector = document.getElementById('themeSelector');
-    if (themeSelector) {
-        themeSelector.value = theme;
-        themeSelector.onchange = (e) => saveAppTheme(e.target.value);
-    }
-}
-
-// --- UTILITY FUNCTIONS ---
-
-/**
- * Copies text to the clipboard.
- * @param {string} text - The text to copy.
- */
-function copyToClipboard(text) {
-    const el = document.createElement('textarea');
-    el.value = text;
-    document.body.appendChild(el);
-    el.select();
-    try {
-        const successful = document.execCommand('copy');
-        if (successful) {
-            showAppPopup('Copied', 'Content copied to clipboard!', false, true);
-        } else {
-            showAppPopup('Copy Error', 'Could not copy text automatically. Please select and copy manually.', false);
-        }
-    } catch (err) {
-        showAppPopup('Copy Error', `Error: ${err.message}`, false);
-    }
-    document.body.removeChild(el);
-}
-
-/**
- * Toggles visibility of the main application views.
- * @param {string} viewId 
- */
 function showView(viewId) {
-    const views = document.querySelectorAll('.view-container');
-    views.forEach(view => {
-        view.classList.add('app-hidden');
-    });
-    document.getElementById(viewId).classList.remove('app-hidden');
+    document.getElementById('loginGateView').classList.add('app-hidden');
+    document.getElementById('authenticatedAppGrid').classList.add('app-hidden');
     
-    // Update active navigation item
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => item.classList.remove('active'));
-    
-    // Determine the corresponding nav item for the view
-    let navItemId;
-    if (viewId === 'mainAppView' || viewId === 'decodeView') {
-        navItemId = 'navDashboard';
-    } else if (viewId === 'addView') {
-        navItemId = 'navAdd';
-    } else if (viewId === 'settingsView') {
-        navItemId = 'navSettings';
-    }
-
-    if (navItemId) {
-        document.getElementById(navItemId)?.classList.add('active');
-    }
-
-    // Always ensure the main header is visible if not in the login gate
-    const header = document.getElementById('appHeader');
-    if (header) {
-        if (viewId === 'loginGateView') {
-            header.classList.add('app-hidden');
-        } else {
-            header.classList.remove('app-hidden');
+    const targetElement = document.getElementById(viewId);
+    if (targetElement) {
+        targetElement.classList.remove('app-hidden');
+        if (viewId === 'authenticatedAppGrid') {
+            const defaultNav = document.querySelector('.nav-link-btn[data-target="storeDataView"]');
+            if(defaultNav) defaultNav.click();
         }
     }
 }
 
 function setupNavigation() {
-    document.getElementById('navDashboard').onclick = () => { updateVaultUI(); showView('mainAppView'); };
-    document.getElementById('navAdd').onclick = () => showView('addView');
-    document.getElementById('navSettings').onclick = () => showView('settingsView');
-    document.getElementById('navLogout').onclick = processVaultLogout;
-    document.getElementById('updateIDButton').onclick = updateUserID;
-    document.getElementById('updateMasterKeyButton').onclick = updateMasterKey;
+    document.querySelectorAll('.nav-link-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            document.querySelectorAll('.nav-link-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.view-panel-area').forEach(panel => panel.classList.add('app-hidden'));
+
+            const targetId = e.target.dataset.target;
+            document.getElementById(targetId).classList.remove('app-hidden');
+            e.target.classList.add('active');
+
+            if (targetId === 'decodeDataView') {
+                updateAccessKeyList();
+            } else if (targetId === 'settingsConfigView') {
+                updateConfigView();
+            }
+        });
+    });
 }
 
+function setupEntryTypeTabs() {
+    document.querySelectorAll('.type-tab-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            document.querySelectorAll('.type-tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.entry-data-tab').forEach(block => block.classList.add('app-hidden'));
+
+            const entryType = e.target.dataset.entryType;
+            document.getElementById(`entry-content-${entryType}`).classList.remove('app-hidden');
+            e.target.classList.add('active');
+        });
+    });
+}
+
+
+// --- VIEW SPECIFIC FUNCTIONS: STORE DATA ---
+
+async function storeNewEntry(type) {
+    let entryData = { type: type, timestamp: Date.now() };
+    let accessIdInput;
+
+    switch (type) {
+        case 'credentials':
+            accessIdInput = document.getElementById('credEntryID');
+            entryData.user = document.getElementById('credEntryUser').value.trim();
+            entryData.pass = document.getElementById('credEntryPass').value;
+            entryData.notes = document.getElementById('credEntryNotes').value.trim();
+            break;
+        case 'contact':
+            accessIdInput = document.getElementById('contactEntryID');
+            entryData.name = document.getElementById('contactEntryName').value.trim();
+            entryData.email = document.getElementById('contactEntryEmail').value.trim();
+            entryData.phone = document.getElementById('contactEntryPhone').value.trim();
+            entryData.notes = document.getElementById('contactEntryNotes').value.trim();
+            break;
+        case 'securenote':
+            accessIdInput = document.getElementById('noteEntryID');
+            entryData.content = document.getElementById('noteEntryContent').value.trim();
+            break;
+        case 'link':
+            accessIdInput = document.getElementById('linkEntryID');
+            entryData.address = document.getElementById('linkEntryAddress').value.trim();
+            entryData.notes = document.getElementById('linkEntryNotes').value.trim();
+            break;
+        default:
+            return showAppPopup('Error', 'Invalid entry type selected.', false, false);
+    }
+
+    const accessId = accessIdInput.value.trim();
+
+    if (!accessId || (type === 'securenote' && !entryData.content)) {
+        return showAppPopup('Missing Information', 'Title/Access ID and content fields are required.', false, false);
+    }
+    
+    if (VAULT_DATA.entries[accessId]) {
+        return showAppPopup('Error', `An entry with the ID '<strong>${accessId}</strong>' already exists.`, false, false);
+    }
+    
+    const encryptedData = encryptData(JSON.stringify(entryData));
+
+    VAULT_DATA.entries[accessId] = { type: type, encryptedData: encryptedData };
+
+    if (await saveVaultData()) {
+        showAppPopup('Success', `New secret '<strong>${accessId}</strong>' saved securely!`, false, true);
+        accessIdInput.value = ''; 
+        
+        if(type === 'credentials') {
+            document.getElementById('credEntryUser').value = '';
+            document.getElementById('credEntryPass').value = '';
+            document.getElementById('credEntryNotes').value = '';
+        } else if (type === 'contact') {
+            document.getElementById('contactEntryName').value = '';
+            document.getElementById('contactEntryEmail').value = '';
+            document.getElementById('contactEntryPhone').value = '';
+            document.getElementById('contactEntryNotes').value = '';
+        } else if (type === 'securenote') {
+            document.getElementById('noteEntryContent').value = '';
+        } else if (type === 'link') {
+            document.getElementById('linkEntryAddress').value = '';
+            document.getElementById('linkEntryNotes').value = '';
+        }
+    }
+}
+
+// --- VIEW SPECIFIC FUNCTIONS: DECODE DATA ---
+
+function updateAccessKeyList() {
+    const listContainer = document.getElementById('accessKeyList');
+    listContainer.innerHTML = '';
+    const entries = VAULT_DATA.entries || {};
+    const accessIds = Object.keys(entries).sort();
+
+    if (accessIds.length === 0) {
+        listContainer.innerHTML = '<p>No saved secrets found in your vault.</p>';
+        document.getElementById('selectedAccessID').value = '';
+        document.getElementById('decodedDataOutput').innerHTML = '<p style="color: var(--color-text-secondary);">Content will appear here after successful decryption.</p>';
+        return;
+    }
+
+    let selectedId = document.getElementById('selectedAccessID').value;
+    let selectedTagFound = false;
+
+    accessIds.forEach(id => {
+        const tag = document.createElement('span');
+        tag.className = 'key-tag';
+        tag.textContent = id;
+        tag.dataset.id = id;
+        tag.onclick = () => selectAccessKey(id);
+
+        if (id === selectedId) {
+            tag.classList.add('selected');
+            selectedTagFound = true;
+        }
+
+        listContainer.appendChild(tag);
+    });
+
+    if (!selectedTagFound || !selectedId) {
+        document.getElementById('selectedAccessID').value = '';
+    }
+}
+
+function selectAccessKey(id) {
+    document.getElementById('selectedAccessID').value = id;
+    
+    document.querySelectorAll('.key-tag').forEach(tag => {
+        tag.classList.remove('selected');
+        if (tag.dataset.id === id) {
+            tag.classList.add('selected');
+        }
+    });
+
+    document.getElementById('decodedDataOutput').innerHTML = '<p style="color: var(--color-text-secondary);">Key selected. Click "Decrypt Selected Data" to unlock content.</p>';
+}
+
+/**
+ * Helper function to create clickable links and emails in the output.
+ */
+const formatValue = (key, value) => {
+    if (!value || value.trim() === '') return '<em>[None Provided]</em>';
+
+    // 1. Email check
+    if (key.toLowerCase().includes('email') && value.includes('@')) {
+        return `<a href="mailto:${value}">${value}</a>`;
+    }
+    
+    // 2. URL/Link check
+    if ((key.toLowerCase().includes('link') || key.toLowerCase().includes('address') || key.toLowerCase().includes('url')) && (value.startsWith('http') || value.startsWith('www'))) {
+        let url = value.startsWith('http') ? value : `http://${value}`;
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${value}</a>`;
+    }
+    
+    // 3. Phone check
+    if (key.toLowerCase().includes('phone') && (/\d/g.test(value))) {
+        let phoneLink = value.replace(/[\s\-\(\)]/g, ''); 
+        return `<a href="tel:${phoneLink}">${value}</a>`;
+    }
+
+    return value;
+};
+
+
+/**
+ * Prompts user for the Master Key and returns it.
+ */
+function promptKeyForDecode() {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('popupOverlay');
+        const originalConfirmText = document.querySelector('#popupControls .action-confirm').textContent;
+
+        document.getElementById('popupTitle').textContent = 'Security Check Required';
+        document.getElementById('popupMessage').innerHTML = 
+            'For security, please re-enter your Master Security Key to decrypt the selected item: <br><br>' +
+            '<input type="password" id="tempDecodeKeyInput" placeholder="Master Security Key" style="width: 100%; margin: 10px 0;">';
+        
+        const confirmBtn = document.querySelector('#popupControls .action-confirm');
+        confirmBtn.textContent = 'Decrypt';
+        const cancelBtn = document.querySelector('#popupControls .action-cancel');
+        cancelBtn.classList.remove('app-hidden');
+        
+        const keyAttemptHandler = () => {
+            const tempKey = document.getElementById('tempDecodeKeyInput').value;
+            confirmBtn.textContent = originalConfirmText;
+            cancelBtn.classList.add('app-hidden');
+            closeAppPopup(true);
+            resolve(tempKey);
+        };
+
+        confirmBtn.onclick = keyAttemptHandler;
+        cancelBtn.onclick = () => {
+            confirmBtn.textContent = originalConfirmText;
+            cancelBtn.classList.add('app-hidden');
+            closeAppPopup(false);
+            resolve(null); 
+        };
+        
+        overlay.classList.remove('app-hidden');
+        document.getElementById('tempDecodeKeyInput').focus();
+    });
+}
+
+/**
+ * Decrypts and displays the data for the currently selected key.
+ */
+async function retrieveSelectedData() {
+    const accessId = document.getElementById('selectedAccessID').value;
+    const outputArea = document.getElementById('decodedDataOutput');
+
+    if (!accessId) {
+        return outputArea.innerHTML = '<p style="color: var(--color-action-danger);">Please select an Access ID first.</p>';
+    }
+
+    const entry = VAULT_DATA.entries[accessId];
+    if (!entry) {
+        return outputArea.innerHTML = `<p style="color: var(--color-action-danger);">Error: ID '<strong>${accessId}</strong>' not found in vault.</p>`;
+    }
+
+    // 1. Prompt for Key
+    const keyAttempt = await promptKeyForDecode();
+
+    if (!keyAttempt) {
+        return outputArea.innerHTML = `<p style="color: var(--color-action-danger);">Decryption canceled by user.</p>`;
+    }
+    
+    // 2. Attempt Decryption
+    const decryptedString = decryptData(entry.encryptedData, keyAttempt);
+
+    if (decryptedString === null) {
+        return outputArea.innerHTML = `<p style="color: var(--color-action-critical);">Decryption failed! The key you entered is incorrect.</p>`;
+    }
+
+    // 3. Format Output
+    let displayOutput = '';
+    try {
+        const data = JSON.parse(decryptedString);
+        
+        switch(data.type) {
+            case 'credentials':
+                displayOutput = `
+                <div class="decode-output-grid">
+                    <h3>Secret: Credentials (ID: ${accessId})</h3>
+                    <div class="field-label">Username:</div><div class="field-value">${data.user}</div>
+                    <div class="field-label">Password:</div><div class="field-value">${data.pass}</div>
+                    <div class="field-label">Notes:</div><div class="field-value">${formatValue('Notes', data.notes)}</div>
+                </div>`;
+                break;
+            case 'contact':
+                displayOutput = `
+                <div class="decode-output-grid">
+                    <h3>Secret: Contact Detail (ID: ${accessId})</h3>
+                    <div class="field-label">Name:</div><div class="field-value">${data.name}</div>
+                    <div class="field-label">Email:</div><div class="field-value">${formatValue('Email', data.email)}</div>
+                    <div class="field-label">Phone:</div><div class="field-value">${formatValue('Phone', data.phone)}</div>
+                    <div class="field-label">Notes:</div><div class="field-value">${formatValue('Notes', data.notes)}</div>
+                </div>`;
+                break;
+            case 'securenote':
+                displayOutput = `
+                <div class="decode-output-grid">
+                    <h3>Secret: Secure Note (ID: ${accessId})</h3>
+                    <div class="field-label" style="grid-column: 1 / -1;">Encrypted Note Content:</div>
+                    <div class="field-value" style="grid-column: 1 / -1; padding-left: 0;">${data.content}</div>
+                </div>`;
+                break;
+            case 'link':
+                displayOutput = `
+                <div class="decode-output-grid">
+                    <h3>Secret: Secure Link (ID: ${accessId})</h3>
+                    <div class="field-label">URL:</div><div class="field-value">${formatValue('Address', data.address)}</div>
+                    <div class="field-label">Notes:</div><div class="field-value">${formatValue('Notes', data.notes)}</div>
+                </div>`;
+                break;
+            default:
+                displayOutput = `<p style="color: var(--color-action-danger);">Unknown entry type: ${data.type}. Raw data: <br><br>${decryptedString}</p>`;
+        }
+        
+    } catch (e) {
+        displayOutput = `<p style="color: var(--color-action-critical);">Data Error: Content for ID '<strong>${accessId}</strong>' is corrupted.</p>`;
+    }
+
+    outputArea.innerHTML = displayOutput;
+}
+
+function deleteSelectedData() {
+    const accessId = document.getElementById('selectedAccessID').value;
+
+    if (!accessId) {
+        return showAppPopup('Missing Selection', 'Please select a secret to delete first.', false, false);
+    }
+
+    showAppPopup('Confirm Deletion', 
+                 `Are you sure you want to <strong>PERMANENTLY</strong> delete the secret with ID: <strong>${accessId}</strong>? This action cannot be reversed.`, 
+                 true, 
+                 false, 
+                 async () => { 
+                    if (VAULT_DATA.entries[accessId]) {
+                        delete VAULT_DATA.entries[accessId];
+                        if (await saveVaultData()) {
+                            showAppPopup('Success', `Secret '<strong>${accessId}</strong>' deleted.`, false, true);
+                            document.getElementById('selectedAccessID').value = '';
+                            document.getElementById('decodedDataOutput').innerHTML = '<p style="color: var(--color-text-secondary);">Content will appear here after successful decryption.</p>';
+                            updateAccessKeyList();
+                        }
+                    } else {
+                        showAppPopup('Error', `Secret '<strong>${accessId}</strong>' not found.`, false, false);
+                    }
+                 });
+}
+
+// --- VIEW SPECIFIC FUNCTIONS: SETTINGS ---
+
+function updateConfigView() {
+    document.getElementById('updateUserID').value = CURRENT_USER_ID;
+    updateAvatarDisplay(CURRENT_USER_ID);
+}
+
+function updateAccountIdentifier() {
+    const newId = document.getElementById('updateUserID').value.trim();
+    if (!newId) {
+        return showAppPopup('Missing Information', 'New User Identifier cannot be empty.', false, false);
+    }
+    if (newId === CURRENT_USER_ID) {
+        return showAppPopup('No Change', 'Identifier is already set to that value.', false, true);
+    }
+
+    showAppPopup('Confirm Update', 
+                 `Change your login Identifier from <strong>${CURRENT_USER_ID}</strong> to <strong>${newId}</strong>?`, 
+                 true, 
+                 false, 
+                 async () => { 
+                    await sendBridgeMessage('set', STORAGE_KEY_USER_ID, newId);
+                    CURRENT_USER_ID = newId;
+                    await updateAvatarDisplay(CURRENT_USER_ID);
+                    showAppPopup('Success', `User Identifier successfully updated to <strong>${CURRENT_USER_ID}</strong>.`, false, true);
+                 });
+}
+
+function updateMasterSecurityKey() {
+    const newKey = document.getElementById('updateSecurityKeyInput').value;
+    if (!newKey) {
+        return showAppPopup('Missing Information', 'New Master Security Key cannot be empty.', false, false);
+    }
+    if (newKey === CURRENT_MASTER_KEY) {
+        return showAppPopup('No Change', 'The new key is the same as your current key.', false, true);
+    }
+
+    showAppPopup('Confirm Key Change', 
+                 'Are you certain you want to change your Master Key? The entire vault will be <strong>RE-ENCRYPTED</strong> with the new key.', 
+                 true, 
+                 false, 
+                 async () => { 
+                    const oldKey = CURRENT_MASTER_KEY;
+                    CURRENT_MASTER_KEY = newKey; 
+
+                    try {
+                        if (await saveVaultData()) {
+                            showAppPopup('Success', 'Master Security Key updated and vault re-encrypted!', false, true);
+                            document.getElementById('updateSecurityKeyInput').value = '';
+                        } else {
+                            CURRENT_MASTER_KEY = oldKey; 
+                            await saveVaultData(); 
+                            showAppPopup('Failure', 'Key update failed due to a storage error. Key has <strong>NOT</strong> been changed.', false, false);
+                        }
+                    } catch (e) {
+                        CURRENT_MASTER_KEY = oldKey;
+                        await saveVaultData();
+                        showAppPopup('Critical Error', 'Key update failed critically. Reverted to previous key.', false, false);
+                    }
+                 });
+}
+
+function wipeAllVaultData() {
+    showAppPopup('DANGER ZONE', 
+                 '<strong>WARNING:</strong> This will <strong>PERMANENTLY</strong> wipe all encrypted data, User ID, and Avatar image. Are you <strong>ABSOLUTELY</strong> sure?', 
+                 true, 
+                 false, 
+                 async () => { 
+                    await sendBridgeMessage('remove', STORAGE_KEY_USER_ID);
+                    await sendBridgeMessage('remove', STORAGE_KEY_VAULT_DATA);
+                    await sendBridgeMessage('remove', STORAGE_KEY_AVATAR);
+                    
+                    CURRENT_MASTER_KEY = null;
+                    VAULT_DATA = {};
+                    CURRENT_USER_ID = 'USER';
+
+                    showAppPopup('Vault Wiped', 'All data has been wiped. The application is now reset.', false, true);
+                    
+                    document.getElementById('vaultUsernameInput').value = '';
+                    document.getElementById('masterSecurityKeyInput').value = '';
+                    await initializeApp();
+                    showView('loginGateView');
+                 });
+}
+
+// --- AVATAR MANAGEMENT ---
+
+async function updateAvatarDisplay(userId) {
+    const response = await sendBridgeMessage('get', STORAGE_KEY_AVATAR);
+    const avatarData = response.data;
+    const initial = userId.charAt(0).toUpperCase();
+
+    const elements = [
+        { initial: document.getElementById('headerAvatarInitial'), img: document.getElementById('headerAvatarImage') },
+        { initial: document.getElementById('configAvatarInitial'), img: document.getElementById('configAvatarImage') }
+    ];
+
+    if (avatarData) {
+        const decryptedAvatar = decryptData(avatarData, CURRENT_MASTER_KEY);
+        if (decryptedAvatar) {
+            elements.forEach(el => {
+                el.img.src = decryptedAvatar;
+                el.img.classList.remove('app-hidden');
+                el.initial.classList.add('app-hidden');
+            });
+            return;
+        }
+    }
+    
+    // Fallback to initial
+    elements.forEach(el => {
+        el.initial.textContent = initial;
+        el.initial.classList.remove('app-hidden');
+        el.img.classList.add('app-hidden');
+        el.img.src = '';
+    });
+}
+
+let pendingAvatarBase64 = null;
+
+function handleAvatarFile(event) {
+    const file = event.target.files[0];
+    pendingAvatarBase64 = null; 
+
+    if (!file) return;
+
+    if (file.size > MAX_AVATAR_SIZE_KB * 1024) {
+        event.target.value = ''; 
+        return showAppPopup('File Too Large', `File size exceeds the limit of ${MAX_AVATAR_SIZE_KB}KB.`, false, false);
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        pendingAvatarBase64 = e.target.result;
+        showAppPopup('Image Ready', 'Image uploaded successfully. Click <strong>Save Avatar</strong> to encrypt and store it.', false, true);
+    };
+    reader.readAsDataURL(file);
+}
+
+async function saveUserAvatar() {
+    if (!CURRENT_MASTER_KEY) {
+         return showAppPopup('Error', 'Master Key is needed to encrypt the avatar. Please log out and back in.', false, false);
+    }
+    if (!pendingAvatarBase64) {
+        return showAppPopup('Missing Image', 'Please select a file to upload first.', false, false);
+    }
+
+    try {
+        const encryptedAvatar = encryptData(pendingAvatarBase64);
+        await sendBridgeMessage('set', STORAGE_KEY_AVATAR, encryptedAvatar);
+        await updateAvatarDisplay(CURRENT_USER_ID);
+        showAppPopup('Success', 'New avatar saved and encrypted.', false, true);
+        pendingAvatarBase64 = null;
+        document.getElementById('avatarFileInput').value = ''; 
+    } catch (e) {
+        showAppPopup('Save Error', 'Could not encrypt/save avatar. Encryption failed or storage bridge failed.', false, false);
+    }
+}
+
+function removeUserAvatar() {
+    showAppPopup('Confirm Removal', 
+                 'Are you sure you want to remove the stored Avatar image?', 
+                 true, 
+                 false, 
+                 async () => {
+                    await sendBridgeMessage('remove', STORAGE_KEY_AVATAR);
+                    await updateAvatarDisplay(CURRENT_USER_ID);
+                    showAppPopup('Success', 'Avatar removed.', false, true);
+                    pendingAvatarBase64 = null;
+                    document.getElementById('avatarFileInput').value = '';
+                 });
+}
+
+// --- DATA IMPORT/EXPORT ---
+
+async function exportVaultData() {
+    const response = await sendBridgeMessage('get', STORAGE_KEY_VAULT_DATA);
+    const encryptedData = response.data;
+
+    if (!encryptedData) {
+        return showAppPopup('Export Error', 'No vault data found to export.', false, false);
+    }
+
+    const exportObject = {
+        userId: CURRENT_USER_ID,
+        vaultData: encryptedData,
+        timestamp: new Date().toISOString()
+    };
+    
+    const jsonStr = JSON.stringify(exportObject, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `VaultBackup_${CURRENT_USER_ID}_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showAppPopup('Export Complete', 'Encrypted vault backup file downloaded.', false, true);
+}
+
+function importVaultData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    showAppPopup('Confirm Overwrite', 
+                 'Importing a backup will <strong>OVERWRITE</strong> your current vault data. Proceed?', 
+                 true, 
+                 false, 
+                 async () => {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const importedObject = JSON.parse(e.target.result);
+                            
+                            if (!importedObject.vaultData || !importedObject.userId) {
+                                return showAppPopup('Import Error', 'Invalid backup file structure.', false, false);
+                            }
+
+                            const testDecryption = decryptData(importedObject.vaultData, CURRENT_MASTER_KEY);
+                            if (testDecryption === null) {
+                                return showAppPopup('Import Failed', 'The current Master Key is <strong>INCORRECT</strong> for the imported vault data. Import aborted.', false, false);
+                            }
+
+                            // Overwrite data
+                            await sendBridgeMessage('set', STORAGE_KEY_USER_ID, importedObject.userId);
+                            await sendBridgeMessage('set', STORAGE_KEY_VAULT_DATA, importedObject.vaultData);
+                            
+                            VAULT_DATA = JSON.parse(testDecryption);
+                            CURRENT_USER_ID = importedObject.userId;
+                            await updateAvatarDisplay(CURRENT_USER_ID);
+                            
+                            showAppPopup('Import Success', 'Vault data successfully loaded!', false, true);
+                            updateAccessKeyList();
+                        } catch (err) {
+                            showAppPopup('Import Error', 'File is not valid JSON or data is corrupted.', false, false);
+                        } finally {
+                            document.getElementById('importDataFile').value = ''; 
+                        }
+                    };
+                    reader.readAsText(file);
+                 });
+}
+
+// --- THEME & VISIBILITY TOGGLES ---
+
+function toggleKeyVisibility(toggleElement) {
+    const targetId = toggleElement.dataset.target;
+    const targetInput = document.getElementById(targetId);
+
+    if (targetInput.type === 'password') {
+        targetInput.type = 'text';
+        toggleElement.textContent = '🙈';
+    } else {
+        targetInput.type = 'password';
+        toggleElement.textContent = '👁️';
+    }
+}
+
+async function toggleAppTheme() {
+    const currentTheme = document.body.parentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.body.parentElement.setAttribute('data-theme', newTheme);
+    await sendBridgeMessage('set', STORAGE_KEY_THEME, newTheme);
+    
+    document.getElementById('modeToggleIcon').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+}
+
+async function loadAppTheme() {
+    const response = await sendBridgeMessage('get', STORAGE_KEY_THEME);
+    const savedTheme = response.data || 'dark';
+    document.body.parentElement.setAttribute('data-theme', savedTheme);
+    document.getElementById('modeToggleIcon').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+}
 
 // --- POPUP MODAL CONTROL ---
 
 let popupResolve = null;
 
-/**
- * Shows a custom popup modal (replaces alert/confirm).
- * @param {string} title 
- * @param {string} message 
- * @param {boolean} [needsConfirmation=false] - Whether to show a cancel button.
- * @param {boolean} [isSuccess=false] - Changes the popup styling to green/success.
- * @param {function} [onConfirm=null] - Optional function to execute on confirmation.
- * @returns {Promise<boolean>} Resolves with true if confirmed, false if canceled.
- */
-function showAppPopup(title, message, needsConfirmation = false, isSuccess = false, onConfirm = null) {
+function showAppPopup(title, message, needsConfirmation, isSuccess, onConfirm = null) {
     const overlay = document.getElementById('popupOverlay');
+    document.getElementById('popupTitle').textContent = title;
+    // Replace custom bold with HTML strong
+    document.getElementById('popupMessage').innerHTML = message.replace(/<strong>(.*?)<\/strong>/g, '<strong>$1</strong>');
+    
     const confirmBtn = document.querySelector('#popupControls .action-confirm');
     const cancelBtn = document.querySelector('#popupControls .action-cancel');
     
@@ -869,20 +861,13 @@ function showAppPopup(title, message, needsConfirmation = false, isSuccess = fal
         cancelBtn.classList.add('app-hidden');
     }
 
-    // Set styling based on type
-    const titleEl = document.getElementById('popupTitle');
-    const titleColor = isSuccess ? 'var(--color-action-secondary)' : (needsConfirmation ? 'var(--color-action-danger)' : 'var(--color-action-main)');
-    titleEl.style.color = titleColor;
-
-    titleEl.textContent = title;
-    document.getElementById('popupMessage').textContent = message;
+    document.getElementById('popupTitle').style.color = isSuccess ? 'var(--color-action-secondary)' : (needsConfirmation ? 'var(--color-action-danger)' : 'var(--color-action-main)');
 
     overlay.classList.remove('app-hidden');
     
     return new Promise(resolve => {
         popupResolve = resolve;
         if (onConfirm) {
-            // Override confirm button to run the provided function and then close
             confirmBtn.onclick = () => {
                 closeAppPopup(true);
                 if (onConfirm) onConfirm();
@@ -898,4 +883,12 @@ function closeAppPopup(confirmed) {
         popupResolve(confirmed);
         popupResolve = null;
     }
+}
+
+function processVaultLogout() {
+    CURRENT_MASTER_KEY = null;
+    VAULT_DATA = {};
+    document.getElementById('masterSecurityKeyInput').value = ''; 
+    showAppPopup('Signed Out', 'You have securely signed out. The Master Key has been cleared from memory.', false, true);
+    showView('loginGateView');
 }
