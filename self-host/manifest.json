@@ -1,0 +1,27 @@
+{
+  "name": "Secret Keeper Vault",
+  "short_name": "Keeper",
+  "description": "A secure, client-side encrypted vault for storing sensitive data.",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1e1e1e",
+  "theme_color": "#6200ee",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

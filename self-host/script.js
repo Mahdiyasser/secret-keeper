@@ -37,7 +37,30 @@ function initializeApp() {
     } else {
         updateAvatarDisplay(CURRENT_USER_ID);
     }
+
+    registerServiceWorker();
+
     showView('loginGateView'); 
+}
+
+// --- PWA SERVICE WORKER REGISTRATION ---
+
+/**
+ * Registers the service worker named 'service-worker.js' for PWA functionality.
+ */
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        // Wait for the window to load before registering the Service Worker
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(registration => {
+                    console.log('Service Worker registered: ', registration);
+                })
+                .catch(registrationError => {
+                    console.log('Service Worker registration failed: ', registrationError);
+                });
+        });
+    }
 }
 
 // --- ENCRYPTION/DECRYPTION UTILITIES ---
