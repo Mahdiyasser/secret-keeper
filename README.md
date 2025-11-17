@@ -1,7 +1,7 @@
 # 🔐 Secret Keeper: A Fully Local, Client-Side Encrypted Vault
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Mahdiyasser/secret-keeper/refs/heads/main/icon-512.png" alt="Secret Keeper Logo" width="150" height="150" />
+  <img src="https://raw.githubusercontent.com/Mahdiyasser/secret-keeper/refs/heads/main/favicon.png" alt="Secret Keeper Logo" width="150" height="150" />
 </div>
 
 Secret Keeper is a fully client-side browser vault that stores your sensitive data locally and securely using AES-256 encryption via CryptoJS. Everything happens on your device — no servers, no tracking, no data leaks.
@@ -16,9 +16,8 @@ Your master key never leaves your device.
 
 ### 💾 Fully Local Storage
 Encrypted data is stored **exclusively in localStorage**, ensuring:
-- Full privacy
-- Online access via the offical website (You can use it from the browser or install the online app "https://keeper.mahdiyasser.site")
-- Offline access (You must to install the app from "https://keeper.mahdiyasser.site/self-host") to use it 100% offline
+- Full privacy  
+- Offline access  
 - Zero backend dependency  
 
 ### 🔑 Master Key Protection
