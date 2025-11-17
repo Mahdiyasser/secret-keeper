@@ -75,7 +75,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupNavigation();
     setupEntryTypeTabs();
     
-    document.getElementById('authActionButton').onclick = performAuthentication;
+    // FIX: Revert to standard assignment, but wrap the call in a new async function
+    // This allows the async function to be properly awaited when the button is clicked.
+    document.getElementById('authActionButton').onclick = async () => { 
+        await performAuthentication();
+    };
 });
 
 async function initializeApp() {
