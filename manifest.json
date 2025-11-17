@@ -1,0 +1,28 @@
+{
+  "name": "Secret Keeper",
+  "short_name": "Keeper",
+  "description": "A secure, client-side encrypted vault application for storing credentials, notes, and sensitive data using a master security key.",
+  "start_url": ".",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#6200ee",
+  "background_color": "#121212",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "orientation": "portrait"
+}

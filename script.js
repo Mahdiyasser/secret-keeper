@@ -112,6 +112,20 @@ let Storage = null;
 // --- INITIALIZATION & UI SETUP ---
 
 document.addEventListener('DOMContentLoaded', () => {
+    // START PWA SERVICE WORKER REGISTRATION - ADD THIS BLOCK
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(reg => {
+                    console.log('Service Worker registered successfully: ', reg.scope);
+                })
+                .catch(error => {
+                    console.log('Service Worker registration failed: ', error);
+                });
+        });
+    }
+    // END PWA SERVICE WORKER REGISTRATION - ADD THIS BLOCK
+
     // 1. Initialize the bridge communication class
     Storage = new StorageBridge();
     
