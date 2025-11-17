@@ -2,7 +2,7 @@
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/Mahdiyasser/secret-keeper/refs/heads/main/favicon.png" alt="Secret Keeper Logo" width="150" height="150" />
-</div>
+</div> 
 
 Secret Keeper is a fully client-side browser vault that stores your sensitive data locally and securely using AES-256 encryption via CryptoJS. Everything happens on your device — no servers, no tracking, no data leaks.
 
