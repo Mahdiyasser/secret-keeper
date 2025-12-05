@@ -18,7 +18,6 @@ Your master key never leaves your device.
 Encrypted data is stored **exclusively in localStorage**, ensuring:
 - Full privacy
 - Online access via the offical website and its app "https://keeper.mahdiyasser.site"
-- Offline access via the offical offline app that can be downloaded from "https://app-keeper.mahdiyasser.site"
 - Zero backend dependency  
 
 ### 🔑 Master Key Protection
